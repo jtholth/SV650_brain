@@ -2,47 +2,58 @@ import requests
 import csv
 
 def hent_alle_atk():
-    # Korrekt V4 URL i henhold til nyeste dokumentasjon
-    base_url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/162"
+    # Start-URL
+    url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/162"
     
     headers = {
         "Accept": "application/json",
         "X-Client": "SV650-Brain-Project"
     }
     
+    # Start-parametre
     params = {
         'inkluder': 'egenskaper,geometri',
         'srid': '4326',
-        'alle_versjoner': 'false'
+        'alle_versjoner': 'false',
+        'antall': '100' # Henter 100 av gangen
     }
     
     liste = []
-    neste_url = base_url
+    neste_url = url
+    besøkte_urls = set()
     
     print("Starter henting fra NVDB API V4...")
     
-    while neste_url:
+    while neste_url and neste_url not in besøkte_urls:
         try:
-            # Vi bruker params kun på første forespørsel, 'neste' URL inneholder alt
-            response = requests.get(neste_url, params=params if neste_url == base_url else None, headers=headers)
+            besøkte_urls.add(neste_url)
+            
+            # Viktig: Bruk params KUN på den aller første forespørselen.
+            # 'neste_url' fra metadata inneholder allerede alle parametere.
+            if len(besøkte_urls) == 1:
+                response = requests.get(neste_url, params=params, headers=headers)
+            else:
+                response = requests.get(neste_url, headers=headers)
             
             if response.status_code != 200:
-                print(f"Feil: {response.status_code}")
+                print(f"Stoppet. Status: {response.status_code}")
                 break
                 
             data = response.json()
             objekter = data.get('objekter', [])
             
+            if not objekter:
+                break
+
             for obj in objekter:
                 try:
-                    # Geometri
-                    wkt = obj.get('geometri', {}).get('wkt', '')
+                    geometri = obj.get('geometri', {})
+                    wkt = geometri.get('wkt', '')
                     if 'POINT' in wkt:
                         coords = wkt.replace('POINT (', '').replace(')', '').split()
                         lon, lat = coords[0], coords[1]
                         
                         type_atk, retning = 1, 0
-                        # Egenskaper
                         for eg in obj.get('egenskaper', []):
                             navn = eg.get('navn', '')
                             verdi = str(eg.get('verdi', ''))
@@ -55,24 +66,31 @@ def hent_alle_atk():
                 except:
                     continue
             
-            # Paginering: Finn neste side
-            neste_metadata = data.get('metadata', {}).get('neste', {})
-            neste_url = neste_metadata.get('href')
-            print(f"Hentet {len(liste)} fotobokser...")
+            print(f"Hentet totalt {len(liste)} fotobokser så langt...")
+
+            # Finn neste side i metadata
+            metadata = data.get('metadata', {})
+            neste_info = metadata.get('neste', {})
+            neste_url = neste_info.get('href')
             
+            # Sikkerhetsventil: Norge har ca 450-500 fotobokser. 
+            # Hvis vi passerer 1000, er det noe galt.
+            if len(liste) > 1000:
+                print("Sikkerhetsventil utløst (for mange objekter).")
+                break
+                
         except Exception as e:
-            print(f"Feil underveis: {e}")
+            print(f"Feil: {e}")
             break
 
-    # Skriv til fil
+    # Lagre til fil
     with open('ATK.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         if liste:
             writer.writerows(liste)
-            print(f"FERDIG! Lagret totalt {len(liste)} rader til ATK.csv")
+            print(f"FERDIG! Lagret {len(liste)} unike rader til ATK.csv")
         else:
             writer.writerow(['error', '0', '0', '0'])
-            print("Kunne ikke finne data.")
 
 if __name__ == "__main__":
     hent_alle_atk()
