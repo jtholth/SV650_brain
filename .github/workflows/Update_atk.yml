@@ -1,0 +1,26 @@
+name: Update ATK Data
+on:
+  schedule:
+    - cron: '0 0 * * 1' # Kjører hver mandag ved midnatt
+  workflow_dispatch: # Lar deg trykke på en knapp for å oppdatere NÅ
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Run script
+        run: python hent_fotobokser.py
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add ATK.csv
+          git commit -m "Automatisk oppdatering fra NVDB" || exit 0
+          git push
