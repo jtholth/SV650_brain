@@ -10,18 +10,19 @@ def hent_alle_atk():
     params = {'inkluder': 'egenskaper,geometri', 'srid': '4326'}
     
     print("Henter data fra NVDB...")
-    response = requests.get(url, params=params, headers=headers)
-    data = response.json()
-    
-    # Her sjekker vi om data er en liste eller et objekt før vi gjør noe som helst
+    try:
+        response = requests.get(url, params=params, headers=headers)
+        data = response.json()
+    except Exception as e:
+        print(f"Kunne ikke hente data: {e}")
+        data = []
+
     if isinstance(data, list):
         objekter = data
     elif isinstance(data, dict):
         objekter = data.get('objekter', [])
     else:
         objekter = []
-
-    print(f"Fant {len(objekter)} rå-objekter.")
 
     liste = []
     for obj in objekter:
@@ -43,11 +44,14 @@ def hent_alle_atk():
         except:
             continue
 
-    if liste:
-        with open('ATK.csv', 'w', newline='') as f:
-            writer = csv.writer(f)
+    # VIKTIG: Vi lager fila UANSETT om den er tom eller ikke
+    with open('ATK.csv', 'w', newline='') as f:
+        writer = csv.writer(f)
+        if liste:
             writer.writerows(liste)
-        print(f"Suksess! Lagret {len(liste)} rader.")
+            print(f"Suksess! Lagret {len(liste)} rader.")
+        else:
+            print("Ingen data funnet, laget tom fil for å unngå feil.")
 
 if __name__ == "__main__":
     hent_alle_atk()
