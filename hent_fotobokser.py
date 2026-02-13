@@ -2,79 +2,75 @@ import requests
 import csv
 
 def hent_alle_atk():
-    # Bruker det offisielle v4 endepunktet
-    base_url = "https://nvdbapiles-v4.atlas.vegvesen.no/vegobjekter/162"
+    # Enklest mulig URL for å teste v4
+    url = "https://nvdbapiles-v4.atlas.vegvesen.no/vegobjekter/162"
     
     headers = {
         "Accept": "application/json",
-        "X-Client": "SV650-Brain-Project"
+        "X-Client": "SV650-Brain"
     }
     
+    # Vi henter bare de 10 første for å se om vi får kontakt
     params = {
         'inkluder': 'egenskaper,geometri',
         'srid': '4326',
-        'alle_versjoner': 'false'
+        'antall': '50' 
     }
     
-    liste = []
-    current_url = base_url
-    
-    print("Henter data fra NVDB API v4...")
-    
-    # Vi kjører en loop for å håndtere alle sidene med data
-    while current_url:
-        response = requests.get(current_url, params=params, headers=headers)
-        
-        if response.status_code != 200:
-            print(f"Feil fra API: {response.status_code}")
-            break
-            
+    print(f"Kontakter: {url}")
+    try:
+        response = requests.get(url, params=params, headers=headers)
+        print(f"Statuskode: {response.status_code}")
         data = response.json()
-        objekter = data.get('objekter', [])
-        
-        for obj in objekter:
-            try:
-                # Hent koordinater (v4 har ofte punkt-geometri her)
-                wkt = obj.get('geometri', {}).get('wkt', '')
-                if 'POINT' in wkt:
-                    coords = wkt.replace('POINT (', '').replace(')', '').split()
-                    lon, lat = coords[0], coords[1]
-                    
-                    type_atk = 1 # 1 = Punkt-ATK
-                    retning = 0  # 0 = Begge/Ukjent
-                    
-                    # Finn egenskaper i v4-strukturen
-                    for eg in obj.get('egenskaper', []):
-                        navn = eg.get('navn', '')
-                        verdi = str(eg.get('verdi', ''))
-                        
-                        if 'Type' in navn and 'Strekning' in verdi:
-                            type_atk = 2 # 2 = Streknings-ATK
-                        
-                        if 'retning' in navn.lower():
-                            if 'Med' in verdi: retning = 1
-                            elif 'Mot' in verdi: retning = 2
-                    
-                    liste.append([lat, lon, retning, type_atk])
-            except Exception:
-                continue
-        
-        # Sjekk om det finnes en neste side (paginering)
-        metadata = data.get('metadata', {})
-        neste = metadata.get('neste', {})
-        current_url = neste.get('href') # API v4 gir full URL til neste side her
-        params = None # Parametere ligger allerede i 'neste' URL-en
-        
-        print(f"Fant {len(liste)} fotobokser så langt...")
+    except Exception as e:
+        print(f"Kritisk feil ved tilkobling: {e}")
+        return
 
-    # Lagre til fil (commit og push håndteres av GitHub Actions)
+    # Debug: Se hva API-et faktisk inneholder
+    objekter = data.get('objekter', [])
+    print(f"Antall objekter funnet: {len(objekter)}")
+
+    if len(objekter) == 0:
+        print("DEBUG: API-responsen var tom. Her er rådata:")
+        print(data) # Dette vil vise oss feilmeldingen fra Vegvesenet i loggen
+
+    liste = []
+    for obj in objekter:
+        try:
+            # Hent koordinater fra v4 struktur
+            geometri = obj.get('geometri', {})
+            wkt = geometri.get('wkt', '')
+            
+            if 'POINT' in wkt:
+                coords = wkt.replace('POINT (', '').replace(')', '').split()
+                lon, lat = coords[0], coords[1]
+                
+                type_atk = 1
+                retning = 0
+                
+                # Sjekk egenskaper
+                for eg in obj.get('egenskaper', []):
+                    navn = eg.get('navn', '')
+                    verdi = str(eg.get('verdi', ''))
+                    if 'Type' in navn and 'Strekning' in verdi: type_atk = 2
+                    if 'retning' in navn.lower():
+                        if 'Med' in verdi: retning = 1
+                        elif 'Mot' in verdi: retning = 2
+                
+                liste.append([lat, lon, retning, type_atk])
+        except Exception as e:
+            continue
+
+    # Tving skriving til fil
     with open('ATK.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         if liste:
             writer.writerows(liste)
-            print(f"Suksess! Lagret totalt {len(liste)} fotobokser til ATK.csv")
+            print(f"Suksess! Skrev {len(liste)} linjer til ATK.csv")
         else:
-            print("Ingen data funnet. Sjekk API-tilgang.")
+            # Hvis listen er tom, skriver vi en feilmelding i fila så den ikke er 0 bytes
+            writer.writerow(['FEIL', 'INGEN_DATA_FRA_API', '0', '0'])
+            print("Skrev feilmelding til fil (listen var tom).")
 
 if __name__ == "__main__":
     hent_alle_atk()
