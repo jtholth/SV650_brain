@@ -27,7 +27,7 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          git pull origin main # Henter endringene (inkludert slettingen din)
           git add ATK.csv
-          # Denne linjen hindrer feil hvis det ikke er noen endringer i dataene
-          git commit -m "Automatisk oppdatering av ATK-liste" || echo "Ingen endringer å lagre"
-          git push
+          git commit -m "Automatisk oppdatering av ATK-liste" || echo "Ingen endringer"
+          git push origin main
