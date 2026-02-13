@@ -2,53 +2,37 @@ import requests
 import csv
 
 def hent_alle_atk():
-    # Enklest mulig URL for å teste v4
-    url = "https://nvdbapiles-v4.atlas.vegvesen.no/vegobjekter/162"
+    # I v4 spesifiserer vi ofte alt i URL-en for å unngå parameter-krøll
+    url = "https://nvdbapiles-v4.atlas.vegvesen.no/vegobjekter/162?inkluder=egenskaper,geometri&srid=4326"
     
     headers = {
         "Accept": "application/json",
         "X-Client": "SV650-Brain"
     }
     
-    # Vi henter bare de 10 første for å se om vi får kontakt
-    params = {
-        'inkluder': 'egenskaper,geometri',
-        'srid': '4326',
-        'antall': '50' 
-    }
-    
     print(f"Kontakter: {url}")
-    try:
-        response = requests.get(url, params=params, headers=headers)
-        print(f"Statuskode: {response.status_code}")
-        data = response.json()
-    except Exception as e:
-        print(f"Kritisk feil ved tilkobling: {e}")
+    response = requests.get(url, headers=headers)
+    print(f"Statuskode: {response.status_code}")
+
+    if response.status_code != 200:
+        print("Feil fra API. Her er svaret:")
+        print(response.text) # Dette vil vise nøyaktig HVORFOR Vegvesenet avviser oss
         return
 
-    # Debug: Se hva API-et faktisk inneholder
+    data = response.json()
     objekter = data.get('objekter', [])
     print(f"Antall objekter funnet: {len(objekter)}")
-
-    if len(objekter) == 0:
-        print("DEBUG: API-responsen var tom. Her er rådata:")
-        print(data) # Dette vil vise oss feilmeldingen fra Vegvesenet i loggen
 
     liste = []
     for obj in objekter:
         try:
-            # Hent koordinater fra v4 struktur
-            geometri = obj.get('geometri', {})
-            wkt = geometri.get('wkt', '')
-            
+            # v4 koordinat-uthenting
+            wkt = obj.get('geometri', {}).get('wkt', '')
             if 'POINT' in wkt:
-                coords = wkt.replace('POINT (', '').replace(')', '').split()
-                lon, lat = coords[0], coords[1]
+                p = wkt.replace('POINT (', '').replace(')', '').split()
+                lon, lat = p[0], p[1]
                 
-                type_atk = 1
-                retning = 0
-                
-                # Sjekk egenskaper
+                type_atk, retning = 1, 0
                 for eg in obj.get('egenskaper', []):
                     navn = eg.get('navn', '')
                     verdi = str(eg.get('verdi', ''))
@@ -58,19 +42,17 @@ def hent_alle_atk():
                         elif 'Mot' in verdi: retning = 2
                 
                 liste.append([lat, lon, retning, type_atk])
-        except Exception as e:
+        except:
             continue
 
-    # Tving skriving til fil
     with open('ATK.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         if liste:
             writer.writerows(liste)
-            print(f"Suksess! Skrev {len(liste)} linjer til ATK.csv")
+            print(f"Suksess! Lagret {len(liste)} rader.")
         else:
-            # Hvis listen er tom, skriver vi en feilmelding i fila så den ikke er 0 bytes
-            writer.writerow(['FEIL', 'INGEN_DATA_FRA_API', '0', '0'])
-            print("Skrev feilmelding til fil (listen var tom).")
+            writer.writerow(['error', 'no_data', '0', '0'])
+            print("Listen var tom.")
 
 if __name__ == "__main__":
     hent_alle_atk()
