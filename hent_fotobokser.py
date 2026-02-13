@@ -13,37 +13,39 @@ def hent_alle_atk():
     response = requests.get(url, params=params, headers=headers)
     data = response.json()
     
-    # FIX: Sjekker om data er en liste direkte eller om det ligger i 'objekter'
+    # Her håndterer vi listen direkte uten å bruke .get()
     if isinstance(data, list):
         objekter = data
-    elif isinstance(data, dict) and 'objekter' in data:
-        objekter = data['objekter']
     else:
-        print("Uventet format fra API")
-        return
+        objekter = data.get('objekter', [])
 
     liste = []
     for obj in objekter:
         try:
+            # Hent koordinater
             wkt = obj['geometri']['wkt']
             coords = wkt.replace("POINT (", "").replace(")", "").split(" ")
             lon, lat = coords[0], coords[1]
             
             type_atk, retning = 1, 0
-            for eg in obj.get('egenskaper', []):
-                if eg['navn'] == 'Type' and 'Strekning' in str(eg['verdi']):
+            # Bruker .get på egenskaper (som er inne i hvert objekt)
+            egenskaper = obj.get('egenskaper', [])
+            for eg in egenskaper:
+                navn = eg.get('navn', '')
+                verdi = str(eg.get('verdi', ''))
+                if navn == 'Type' and 'Strekning' in verdi:
                     type_atk = 2
-                if eg['navn'] == 'Kontrollerer trafikk i retning':
-                    retning = 1 if "Med" in str(eg['verdi']) else 2
+                if navn == 'Kontrollerer trafikk i retning':
+                    retning = 1 if "Med" in verdi else 2
 
             liste.append([lat, lon, retning, type_atk])
-        except:
+        except Exception as e:
             continue
 
     with open('ATK.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerows(liste)
-    print(f"Ferdig! Lagret {len(liste)} rader.")
+    print(f"Ferdig! Lagret {len(liste)} fotobokser.")
 
 if __name__ == "__main__":
     hent_alle_atk()
