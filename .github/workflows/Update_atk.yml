@@ -23,11 +23,13 @@ jobs:
       - name: Run scraper
         run: python hent_fotobokser.py
 
-      - name: Commit and push changes
+- name: Commit and push changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git pull origin main # Henter endringene (inkludert slettingen din)
           git add ATK.csv
-          git commit -m "Automatisk oppdatering av ATK-liste" || echo "Ingen endringer"
+          # Vi legger til '|| true' så den ikke kræsjer hvis det ikke er endringer
+          git commit -m "Automatisk oppdatering" || echo "Ingen endringer"
+          # Tvinger frem en samkjøring med 'rebase'
+          git pull --rebase origin main
           git push origin main
