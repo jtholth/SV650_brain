@@ -1,0 +1,32 @@
+name: Update ATK Data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Run scraper
+        run: python hent_fotobokser.py
+
+      - name: Commit and push files
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add ATK.csv
+          git commit -m "Update ATK list" || echo "No changes to commit"
+          git push
