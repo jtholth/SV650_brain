@@ -1,26 +1,59 @@
-name: Update ATK Data
-on:
-  schedule:
-    - cron: '0 0 * * 1' # Kjører hver mandag ved midnatt
-  workflow_dispatch: # Lar deg trykke på en knapp for å oppdatere NÅ
+import requests
+import csv
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-      - name: Install dependencies
-        run: pip install requests
-      - name: Run script
-        run: python hent_fotobokser.py
-      - name: Commit and push changes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add ATK.csv
-          git commit -m "Automatisk oppdatering fra NVDB" || exit 0
-          git push
+def hent_alle_atk():
+    # NVDB API URL for objekt 162 (Fotoboks)
+    url = "https://nvdbapiles-v3.atlas.vegvesen.no/vegobjekter/162"
+    params = {
+        'inkluder': 'egenskaper,geometri',
+        'srid': '4326' # Bredde- og lengdegrad
+    }
+    
+    print("Kobler til NVDB...")
+    response = requests.get(url, params=params)
+    data = response.json()
+    
+    # Sjekk om data er en liste direkte, eller om det ligger under 'objekter'
+    objekter = data if isinstance(data, list) else data.get('objekter', [])
+    
+    liste = []
+    print(f"Fant {len(objekter)} objekter. Prosesserer...")
+
+    for obj in objekter:
+        try:
+            # Hent koordinater fra WKT (Well Known Text) format: "POINT (10.12 59.12)"
+            wkt = obj['geometri']['wkt']
+            coords = wkt.replace("POINT (", "").replace(")", "").split(" ")
+            lon = coords[0]
+            lat = coords[1]
+            
+            type_atk = 1 # Standard Punkt-ATK
+            retning = 0 # 0 betyr "alle retninger" eller "ukjent"
+            
+            for eg in obj['egenskaper']:
+                # Sjekk om det er streknings-ATK
+                if eg['navn'] == 'Type':
+                    if 'Strekning' in str(eg['verdi']):
+                        type_atk = 2
+                
+                # Finn kjøreretning
+                if eg['navn'] == 'Kontrollerer trafikk i retning':
+                    verdi = eg['verdi']
+                    if "Med" in verdi:
+                        retning = 1
+                    elif "Mot" in verdi:
+                        retning = 2
+
+            liste.append([lat, lon, retning, type_atk])
+        except Exception as e:
+            # Hopper over objekter som mangler data
+            continue
+
+    with open('ATK.csv', 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerows(liste)
+    
+    print(f"Suksess! Lagret {len(liste)} rader til ATK.csv")
+
+if __name__ == "__main__":
+    hent_alle_atk()
