@@ -1,96 +1,51 @@
 import requests
 import csv
+import re
 
 def hent_alle_atk():
-    # Start-URL
     url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/162"
-    
-    headers = {
-        "Accept": "application/json",
-        "X-Client": "SV650-Brain-Project"
-    }
-    
-    # Start-parametre
-    params = {
-        'inkluder': 'egenskaper,geometri',
-        'srid': '4326',
-        'alle_versjoner': 'false',
-        'antall': '100' # Henter 100 av gangen
-    }
+    headers = {"Accept": "application/json", "X-Client": "SV650-Brain-Project"}
+    params = {'inkluder': 'egenskaper,geometri', 'srid': '4326', 'alle_versjoner': 'false', 'antall': '100'}
     
     liste = []
     neste_url = url
     besøkte_urls = set()
-    
-    print("Starter henting fra NVDB API V4...")
-    
+
     while neste_url and neste_url not in besøkte_urls:
         try:
             besøkte_urls.add(neste_url)
+            response = requests.get(neste_url, params=params if len(besøkte_urls)==1 else None, headers=headers)
+            if response.status_code != 200: break
             
-            # Viktig: Bruk params KUN på den aller første forespørselen.
-            # 'neste_url' fra metadata inneholder allerede alle parametere.
-            if len(besøkte_urls) == 1:
-                response = requests.get(neste_url, params=params, headers=headers)
-            else:
-                response = requests.get(neste_url, headers=headers)
-            
-            if response.status_code != 200:
-                print(f"Stoppet. Status: {response.status_code}")
-                break
-                
             data = response.json()
-            objekter = data.get('objekter', [])
-            
-            if not objekter:
-                break
-
-            for obj in objekter:
-                try:
-                    geometri = obj.get('geometri', {})
-                    wkt = geometri.get('wkt', '')
-                    if 'POINT' in wkt:
-                        coords = wkt.replace('POINT (', '').replace(')', '').split()
-                        lon, lat = coords[0], coords[1]
-                        
-                        type_atk, retning = 1, 0
-                        for eg in obj.get('egenskaper', []):
-                            navn = eg.get('navn', '')
-                            verdi = str(eg.get('verdi', ''))
-                            if 'Type' in navn and 'Strekning' in verdi: type_atk = 2
-                            if 'retning' in navn.lower():
-                                if 'Med' in verdi: retning = 1
-                                elif 'Mot' in verdi: retning = 2
-                        
-                        liste.append([lat, lon, retning, type_atk])
-                except:
-                    continue
-            
-            print(f"Hentet totalt {len(liste)} fotobokser så langt...")
-
-            # Finn neste side i metadata
-            metadata = data.get('metadata', {})
-            neste_info = metadata.get('neste', {})
-            neste_url = neste_info.get('href')
-            
-            # Sikkerhetsventil: Norge har ca 450-500 fotobokser. 
-            # Hvis vi passerer 1000, er det noe galt.
-            if len(liste) > 1000:
-                print("Sikkerhetsventil utløst (for mange objekter).")
-                break
+            for obj in data.get('objekter', []):
+                wkt = obj.get('geometri', {}).get('wkt', '')
+                # Finn alle tall (inkludert desimaler) i WKT-strengen
+                coords = re.findall(r"[-+]?\d*\.\d+|\d+", wkt)
                 
-        except Exception as e:
-            print(f"Feil: {e}")
-            break
+                if len(coords) >= 2:
+                    lon, lat = coords[0], coords[1] # NVDB sender Lon, Lat
+                    
+                    type_atk, retning = 1, 0
+                    for eg in obj.get('egenskaper', []):
+                        navn = eg.get('navn', '')
+                        verdi = str(eg.get('verdi', ''))
+                        if 'Type' in navn and 'Strekning' in verdi: type_atk = 2
+                        if 'retning' in navn.lower():
+                            if 'Med' in verdi: retning = 1
+                            elif 'Mot' in verdi: retning = 2
+                    
+                    # Lagre som: LAT, LON, RETNING, TYPE (Standard GPS format)
+                    liste.append([lat, lon, retning, type_atk])
+            
+            neste_url = data.get('metadata', {}).get('neste', {}).get('href')
+            print(f"Hentet {len(liste)} fotobokser...")
+        except: break
 
-    # Lagre til fil
     with open('ATK.csv', 'w', newline='') as f:
         writer = csv.writer(f)
-        if liste:
-            writer.writerows(liste)
-            print(f"FERDIG! Lagret {len(liste)} unike rader til ATK.csv")
-        else:
-            writer.writerow(['error', '0', '0', '0'])
+        writer.writerows(liste)
+    print(f"Ferdig! Lagret {len(liste)} rader med rene koordinater.")
 
 if __name__ == "__main__":
     hent_alle_atk()
