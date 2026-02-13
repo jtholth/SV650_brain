@@ -7,64 +7,47 @@ def hent_alle_atk():
         "Accept": "application/vnd.vegvesen.nvdb-v3-rev1+json",
         "X-Client": "SV650-Brain"
     }
-    params = {
-        'inkluder': 'egenskaper,geometri',
-        'srid': '4326'
-    }
+    params = {'inkluder': 'egenskaper,geometri', 'srid': '4326'}
     
     print("Henter data fra NVDB...")
     response = requests.get(url, params=params, headers=headers)
     data = response.json()
     
-    # ROBUST SJEKK: Er dataene en liste eller et objekt?
+    # Her sjekker vi om data er en liste eller et objekt før vi gjør noe som helst
     if isinstance(data, list):
         objekter = data
     elif isinstance(data, dict):
         objekter = data.get('objekter', [])
     else:
-        print("Uventet format fra API")
-        return
+        objekter = []
 
     print(f"Fant {len(objekter)} rå-objekter.")
 
     liste = []
     for obj in objekter:
         try:
-            # Hent WKT fra geometri-feltet
-            geometri = obj.get('geometri', {})
-            wkt = geometri.get('wkt', '')
+            wkt = obj['geometri']['wkt']
+            p = wkt.replace('POINT (', '').replace(')', '').split()
+            lon, lat = p[0], p[1]
             
-            if 'POINT' in wkt:
-                # Rens: "POINT (10.123 59.123)" -> ["10.123", "59.123"]
-                clean_wkt = wkt.replace('POINT', '').replace('(', '').replace(')', '').strip()
-                p = clean_wkt.split()
-                lon, lat = p[0], p[1]
-                
-                type_atk = 1 # Punkt
-                retning = 0  # Ukjent
-                
-                # Finn egenskaper
-                for eg in obj.get('egenskaper', []):
-                    navn = eg.get('navn', '')
-                    verdi = str(eg.get('verdi', ''))
-                    
-                    if 'Type' in navn and 'Strekning' in verdi:
-                        type_atk = 2
-                    if 'retning' in navn.lower():
-                        if 'Med' in verdi: retning = 1
-                        elif 'Mot' in verdi: retning = 2
-                
-                liste.append([lat, lon, retning, type_atk])
-        except Exception as e:
+            type_atk, retning = 1, 0
+            for eg in obj.get('egenskaper', []):
+                navn = eg.get('navn', '')
+                verdi = str(eg.get('verdi', ''))
+                if 'Type' in navn and 'Strekning' in verdi: type_atk = 2
+                if 'retning' in navn.lower():
+                    if 'Med' in verdi: retning = 1
+                    elif 'Mot' in verdi: retning = 2
+            
+            liste.append([lat, lon, retning, type_atk])
+        except:
             continue
 
     if liste:
         with open('ATK.csv', 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerows(liste)
-        print(f"Suksess! Lagret {len(liste)} fotobokser til ATK.csv")
-    else:
-        print("Feil: Ingen gyldige data funnet i objektene.")
+        print(f"Suksess! Lagret {len(liste)} rader.")
 
 if __name__ == "__main__":
     hent_alle_atk()
