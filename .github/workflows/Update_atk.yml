@@ -1,0 +1,33 @@
+name: Update ATK Data
+
+on:
+  workflow_dispatch: # Lar deg starte den manuelt med en knapp
+  schedule:
+    - cron: '0 0 * * 1' # Kjører automatisk hver mandag kl. 00:00
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4 # Oppdatert til v4 for bedre stabilitet
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run scraper
+        run: python hent_fotobokser.py
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add ATK.csv
+          # Denne linjen hindrer feil hvis det ikke er noen endringer i dataene
+          git commit -m "Automatisk oppdatering av ATK-liste" || echo "Ingen endringer å lagre"
+          git push
