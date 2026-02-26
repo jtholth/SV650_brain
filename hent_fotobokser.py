@@ -41,26 +41,33 @@ def hent_norske_fotobokser():
                                 lon = coords[0]
                                 lat = coords[1]
                                 
-                                # --- SMART FARTS-SJEKK START ---
-                                fart = "80" # Default hvis vi ikke finner noe
+                                # --- DEEP SCAN FARTS-SJEKK ---
+                                fart = "80" # Default
+                                found_fart = False
+                                
                                 for egenskap in obj.get('egenskaper', []):
-                                    navn = egenskap.get('navn', '').lower()
-                                    # Vi ser etter "fartsgrense" eller ID 2021
-                                    if "fart" in navn or egenskap.get('id') == 2021:
-                                        verdi_tekst = str(egenskap.get('verdi', ''))
-                                        # Bruker regex for å finne KUN siffer i teksten (f.eks "60 km/t" -> "60")
-                                        tall_match = re.search(r'\d+', verdi_tekst)
-                                        if tall_match:
-                                            fart = tall_match.group()
-                                            break # Vi fant det, gå videre til neste boks
-                                # --- SMART FARTS-SJEKK SLUTT ---
+                                    navn = str(egenskap.get('navn', '')).lower()
+                                    # Vi ser etter alt som inneholder "fart"
+                                    if "fart" in navn:
+                                        # Vi henter 'verdi' (ofte et tall) eller 'verdi_tekst'
+                                        v = egenskap.get('verdi')
+                                        if v is None:
+                                            v = egenskap.get('verdi_tekst')
+                                        
+                                        if v:
+                                            # Finn første tall i verdien (f.eks "60 km/t" -> "60")
+                                            tall_match = re.search(r'\d+', str(v))
+                                            if tall_match:
+                                                fart = tall_match.group()
+                                                found_fart = True
+                                                break
                                 
                                 writer.writerow([final_type, lat, lon, fart])
                                 total_antall += 1
                         except:
                             continue
                 else:
-                    print(f"Feil ved henting av {o_type}: {response.status_code}")
+                    print(f"Feil ved henting: {response.status_code}")
 
         print(f"FERDIG! Lagret {total_antall} punkter i 'ATK.csv'.")
         
