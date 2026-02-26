@@ -3,12 +3,14 @@ import csv
 import re
 
 def hent_norske_fotobokser():
-    print("Kobler til NVDB V4 for å hente fartsgrenser via relasjoner...")
+    print("Kobler til NVDB V4 med fokus på stedfesting...")
+    
+    # Vi henter 103 (Fast ATK) og 823 (Strekning)
     url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/103,823"
     
-    # Her ber vi spesifikt om 'relasjoner' - det er her 105 er koblet til 103
+    # Vi inkluderer vegsegmenter - det er her fartsgrensen fra stedfestingen ligger
     params = {
-        'inkluder': 'geometri,egenskaper,relasjoner,metadata',
+        'inkluder': 'geometri,vegsegmenter,egenskaper',
         'srid': '4326'
     }
     
@@ -20,7 +22,7 @@ def hent_norske_fotobokser():
     try:
         response = requests.get(url, params=params, headers=headers)
         if response.status_code != 200:
-            print(f"Server-feil: {response.status_code}")
+            print(f"Feil: {response.status_code}")
             return
 
         data = response.json()
@@ -28,50 +30,50 @@ def hent_norske_fotobokser():
 
         for obj in data.get('objekter', []):
             try:
-                # 1. Posisjon
+                # 1. Hent posisjon (GPS)
                 wkt = obj['geometri']['wkt']
                 coords = re.findall(r"[-+]?\d*\.\d+|\d+", wkt)
                 if len(coords) < 2: continue
                 lon, lat = coords[0], coords[1]
 
-                # 2. Finn fartsgrense via relasjoner (Objekt 105)
-                fart = "80" 
+                # 2. Hent fartsgrense fra STEDFESTINGEN (vegsegmenter)
+                fart = "80" # Default
                 
-                # Vi leter i 'relasjoner' -> 'foreldre' (Fartsgrense eier ofte boksen logisk)
-                # eller 'barn' avhengig av hvordan NVDB er indeksert i dag
-                relasjoner = obj.get('relasjoner', {})
-                for rel_type in ['foreldre', 'barn']:
-                    for r in relasjoner.get(rel_type, []):
-                        if r.get('type', {}).get('id') == 105:
-                            # Her fant vi en fartsgrense-kobling! 
-                            # Vi henter verdien fra vegobjektet i relasjonen
-                            for e in r.get('vegobjekt', {}).get('egenskaper', []):
-                                if e.get('id') == 2021:
-                                    fart = str(e.get('verdi', '80'))
-                                    break
+                # Vi sjekker vegsegmenter først, da dette er mest nøyaktig for stedfesting
+                if 'vegsegmenter' in obj and len(obj['vegsegmenter']) > 0:
+                    for segment in obj['vegsegmenter']:
+                        # Sjekker om segmentet har en direkte fartsgrense-verdi
+                        v = segment.get('fartsgrense')
+                        if v:
+                            fart = str(v)
+                            break
                 
-                # Hvis vi fortsatt ikke har funnet den, sjekker vi egenskaper direkte
+                # Hvis ikke funnet i segment, sjekk egenskaper som backup
                 if fart == "80":
                     for e in obj.get('egenskaper', []):
-                        if "fartsgrense" in str(e.get('navn', '')).lower():
+                        if e.get('id') == 2021 or "fart" in str(e.get('navn', '')).lower():
                             fart = str(e.get('verdi', '80'))
                             break
 
+                # Rens farten for tekst (f.eks "70 km/t" -> "70")
                 fart = "".join(filter(str.isdigit, fart))
-                if not fart: fart = "80"
+                if not fart or fart == "0": fart = "80"
 
                 type_id = 1 if obj['metadata']['type']['id'] == 103 else 2
                 alle_rader.append([type_id, lat, lon, fart])
             except:
                 continue
 
+        # Lagre til fil
         with open('ATK.csv', 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerows(alle_rader)
             
         print(f"Ferdig! Lagret {len(alle_rader)} punkter.")
-        # En liten sjekk i loggen din:
-        print(f"Sjekk: Første 5 fartsgrenser i lista: {[r[3] for r in alle_rader[:5]]}")
+        
+        # Sjekk de første resultatene i loggen
+        test_fart = [r[3] for r in alle_rader[:10]]
+        print(f"Stikkprøve fartsgrenser: {test_fart}")
 
     except Exception as e:
         print(f"Krasj: {e}")
