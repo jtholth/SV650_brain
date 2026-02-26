@@ -1,46 +1,32 @@
-name: Update ATK Data
+name: Oppdater Fotobokser
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 1' # Kjører hver mandag kl 00:00
+    - cron: '0 3 * * 1' # Kjører hver mandag kl 03:00
+  workflow_dispatch:      # Lar deg starte den manuelt med en knapp
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Henter hele historikken for tryggere rebase
+      - name: Sjekk ut kode
+        uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Sett opp Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Install dependencies
+      - name: Installer biblioteker
         run: pip install requests
 
-      - name: Run scraper
+      - name: Kjor skriptet
         run: python hent_fotobokser.py
 
-      - name: Commit and push changes
+      - name: Lagre endringer
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          
-          # Legg til fila
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
           git add ATK.csv
-          
-          # Lagre lokalt først
-          git commit -m "Automatisk oppdatering av ATK-data" || echo "Ingen endringer"
-          
-          # Hent endringer fra GitHub og plasser våre endringer på toppen (tving gjennom våre data)
-          git pull --rebase -X theirs origin main
-          
-          # Send til GitHub
-          git push origin main
+          git commit -m "Automatisk oppdatering av ATK.csv" || exit 0
+          git push
