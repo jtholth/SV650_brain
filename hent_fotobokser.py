@@ -21,7 +21,7 @@ def hent_norske_fotobokser():
             for o_type in objekttyper:
                 print(f"Henter objekttype {o_type}...")
                 params = {
-                    'inkluder': 'egenskaper,geometri',
+                    'inkluder': 'egenskaper,geometri,metadata', # Lagt til metadata
                     'srid': '4326',
                     'vegsystemreferanse': 'E,R,F'
                 }
@@ -41,27 +41,24 @@ def hent_norske_fotobokser():
                                 lon = coords[0]
                                 lat = coords[1]
                                 
-                                # --- DEEP SCAN FARTS-SJEKK ---
-                                fart = "80" # Default
-                                found_fart = False
+                                # --- NY OG BEDRE FARTS-SJEKK ---
+                                fart = "80" 
+                                egenskap_liste = obj.get('egenskaper', [])
                                 
-                                for egenskap in obj.get('egenskaper', []):
-                                    navn = str(egenskap.get('navn', '')).lower()
-                                    # Vi ser etter alt som inneholder "fart"
-                                    if "fart" in navn:
-                                        # Vi henter 'verdi' (ofte et tall) eller 'verdi_tekst'
-                                        v = egenskap.get('verdi')
-                                        if v is None:
-                                            v = egenskap.get('verdi_tekst')
-                                        
-                                        if v:
-                                            # Finn første tall i verdien (f.eks "60 km/t" -> "60")
-                                            tall_match = re.search(r'\d+', str(v))
-                                            if tall_match:
-                                                fart = tall_match.group()
-                                                found_fart = True
-                                                break
+                                # Vi leter spesifikt etter ID 2021 (Fartsgrense)
+                                for e in egenskap_liste:
+                                    if e.get('id') == 2021:
+                                        fart = str(e.get('verdi', '80'))
+                                        break
+                                    # Backup: se etter ordet fartsgrense i navnet
+                                    elif "fartsgrense" in str(e.get('navn', '')).lower():
+                                        fart = str(e.get('verdi', '80'))
+                                        break
                                 
+                                # Rens ut alt som ikke er tall (f.eks "70 (km/t)" -> "70")
+                                fart = "".join(filter(str.isdigit, fart))
+                                if not fart: fart = "80"
+
                                 writer.writerow([final_type, lat, lon, fart])
                                 total_antall += 1
                         except:
@@ -69,7 +66,7 @@ def hent_norske_fotobokser():
                 else:
                     print(f"Feil ved henting: {response.status_code}")
 
-        print(f"FERDIG! Lagret {total_antall} punkter i 'ATK.csv'.")
+        print(f"FERDIG! Lagret {total_antall} punkter.")
         
     except Exception as e:
         print(f"En feil oppstod: {e}")
