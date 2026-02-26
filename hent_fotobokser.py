@@ -4,12 +4,14 @@ import csv
 def hent_norske_fotobokser():
     print("Kobler til Vegvesenets database (NVDB)...")
     
-    # 103 = Punkt-ATK, 823 = Streknings-ATK
+    # Vi henter objekt 103 (Punkt-ATK) og 823 (Streknings-ATK)
     url = "https://nvdbapiles-v3.atlas.vegvesen.no/vegobjekter/103,823"
     
+    # Vi legger til 'vegsystemreferanse' for å gjøre spørringen gyldig
     params = {
         'inkluder': 'egenskaper,geometri',
-        'srid': '4326'
+        'srid': '4326',
+        'vegsystemreferanse': 'E,R,F' # Europavei, Riksvei, Fylkesvei
     }
     
     headers = {
@@ -19,19 +21,22 @@ def hent_norske_fotobokser():
 
     try:
         response = requests.get(url, params=params, headers=headers)
-        response.raise_for_status()
+        
+        # Hvis det fortsatt feiler, skriver vi ut hva serveren faktisk sier
+        if response.status_code != 200:
+            print(f"Server svarte med feilkode {response.status_code}: {response.text}")
+            response.raise_for_status()
+
         data = response.json()
         
-        # Lagrer til filnavnet du valgte: ATK.csv
         with open('ATK.csv', 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             
             antall = 0
+            # NVDB returnerer objektene i en liste kalt 'objekter'
             for obj in data.get('objekter', []):
-                # Type 1 = Fast boks, Type 2 = Strekning
                 obj_type = 1 if obj['metadata']['type']['id'] == 103 else 2
                 
-                # Hent koordinater
                 try:
                     wkt = obj['geometri']['wkt']
                     coords = wkt.replace('POINT (', '').replace(')', '').split(' ')
@@ -40,7 +45,6 @@ def hent_norske_fotobokser():
                 except (KeyError, IndexError):
                     continue
                 
-                # Finn fartsgrense
                 fart = 80 
                 for egenskap in obj.get('egenskaper', []):
                     if "fartsgrense" in egenskap.get('navn', '').lower():
