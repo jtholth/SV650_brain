@@ -5,9 +5,9 @@ import re
 def hent_norske_fotobokser():
     headers = {'Accept': 'application/vnd.vegvesen.nvdb-v4+json', 'X-Client': 'SV650-Project'}
     
-    # 1. HENT ALLE FARTSGRENSER (105) I NORGE FØRST
+    # 1. HENT ALLE FARTSGRENSER (105)
     print("Henter alle fartsgrenser i Norge (105)...")
-    fart_dict = {} # Her lagrer vi veien som nøkkel
+    fart_dict = {}
     fart_url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/105"
     fart_params = {'inkluder': 'egenskaper,vegsegmenter', 'srid': '4326'}
     
@@ -22,13 +22,17 @@ def hent_norske_fotobokser():
                 
                 for seg in obj.get('vegsegmenter', []):
                     vref = seg.get('vegsystemreferanse', {}).get('vegsystem', {})
-                    if vref:
+                    # SJEKK: Har vi både vei-info og meter-info?
+                    fra_m = seg.get('fra_meter')
+                    til_m = seg.get('til_meter')
+                    
+                    if vref and fra_m is not None and til_m is not None:
                         vei_nokkel = f"{vref.get('vegkategori')}{vref.get('nummer')}"
                         if vei_nokkel not in fart_dict:
                             fart_dict[vei_nokkel] = []
                         fart_dict[vei_nokkel].append({
-                            'fra': seg.get('fra_meter'),
-                            'til': seg.get('til_meter'),
+                            'fra': fra_m,
+                            'til': til_m,
                             'fart': fart_verdi
                         })
         print(f"Lastet ned fartsgrenser for {len(fart_dict)} veier.")
@@ -42,32 +46,33 @@ def hent_norske_fotobokser():
             
             if res.status_code == 200:
                 for obj in res.json().get('objekter', []):
-                    # Koordinater
-                    coords = re.findall(r"[-+]?\d*\.\d+|\d+", obj['geometri']['wkt'])
-                    lon, lat = coords[0], coords[1]
-                    
-                    # DIN LOGIKK: Finn farten basert på meter
-                    fart = "80"
-                    if 'vegsegmenter' in obj and len(obj['vegsegmenter']) > 1: # Bruker 1 pga V4 struktur
-                        seg = obj['vegsegmenter'][0]
-                        vref = seg.get('vegsystemreferanse', {}).get('vegsystem', {})
-                        if vref:
-                            v_kat = vref.get('vegkategori')
-                            v_nr = vref.get('nummer')
-                            v_nokkel = f"{v_kat}{v_nr}"
+                    try:
+                        # Koordinater
+                        coords = re.findall(r"[-+]?\d*\.\d+|\d+", obj['geometri']['wkt'])
+                        if not coords: continue
+                        lon, lat = coords[0], coords[1]
+                        
+                        fart = "80"
+                        if 'vegsegmenter' in obj and len(obj['vegsegmenter']) > 0:
+                            seg = obj['vegsegmenter'][0]
+                            vref = seg.get('vegsystemreferanse', {}).get('vegsystem', {})
                             m = seg.get('fra_meter')
                             
-                            # Sjekk i vår ordbok
-                            if v_nokkel in fart_dict:
-                                for f_seg in fart_dict[v_nokkel]:
-                                    if f_seg['fra'] <= m <= f_seg['til']:
-                                        fart = f_seg['fart']
-                                        break
-                    
-                    type_id = 1 if o_type == "103" else 2
-                    alle_rader.append([type_id, lat, lon, fart])
+                            if vref and m is not None:
+                                v_nokkel = f"{vref.get('vegkategori')}{vref.get('nummer')}"
+                                if v_nokkel in fart_dict:
+                                    for f_seg in fart_dict[v_nokkel]:
+                                        # DIN LOGIKK med sikkerhetssjekk
+                                        if f_seg['fra'] <= m <= f_seg['til']:
+                                            fart = f_seg['fart']
+                                            break
+                        
+                        type_id = 1 if o_type == "103" else 2
+                        alle_rader.append([type_id, lat, lon, fart])
+                    except:
+                        continue
 
-        # 3. LAGRE FILA (Utenfor loopen så den ikke blir overskrevet/tom)
+        # 3. LAGRE FILA
         with open('ATK.csv', 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerows(alle_rader)
