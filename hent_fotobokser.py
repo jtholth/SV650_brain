@@ -3,80 +3,63 @@ import csv
 import re
 
 def hent_norske_fotobokser():
-    print("Kobler til NVDB V4 med fokus på stedfesting...")
+    print("Kobler til NVDB V4 (Separat henting for å unngå 404)...")
     
-    # Vi henter 103 (Fast ATK) og 823 (Strekning)
-    url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/103,823"
-    
-    # Vi inkluderer vegsegmenter - det er her fartsgrensen fra stedfestingen ligger
-    params = {
-        'inkluder': 'geometri,vegsegmenter,egenskaper',
-        'srid': '4326'
-    }
-    
+    # Vi henter 103 og 823 hver for seg
+    objekttyper = ["103", "823"]
     headers = {
         'Accept': 'application/vnd.vegvesen.nvdb-v4+json',
         'X-Client': 'SV650-Project'
     }
+    
+    alle_data = []
 
-    try:
-        response = requests.get(url, params=params, headers=headers)
-        if response.status_code != 200:
-            print(f"Feil: {response.status_code}")
-            return
-
-        data = response.json()
-        alle_rader = []
-
-        for obj in data.get('objekter', []):
-            try:
-                # 1. Hent posisjon (GPS)
-                wkt = obj['geometri']['wkt']
-                coords = re.findall(r"[-+]?\d*\.\d+|\d+", wkt)
-                if len(coords) < 2: continue
-                lon, lat = coords[0], coords[1]
-
-                # 2. Hent fartsgrense fra STEDFESTINGEN (vegsegmenter)
-                fart = "80" # Default
-                
-                # Vi sjekker vegsegmenter først, da dette er mest nøyaktig for stedfesting
-                if 'vegsegmenter' in obj and len(obj['vegsegmenter']) > 0:
-                    for segment in obj['vegsegmenter']:
-                        # Sjekker om segmentet har en direkte fartsgrense-verdi
-                        v = segment.get('fartsgrense')
-                        if v:
-                            fart = str(v)
-                            break
-                
-                # Hvis ikke funnet i segment, sjekk egenskaper som backup
-                if fart == "80":
-                    for e in obj.get('egenskaper', []):
-                        if e.get('id') == 2021 or "fart" in str(e.get('navn', '')).lower():
-                            fart = str(e.get('verdi', '80'))
-                            break
-
-                # Rens farten for tekst (f.eks "70 km/t" -> "70")
-                fart = "".join(filter(str.isdigit, fart))
-                if not fart or fart == "0": fart = "80"
-
-                type_id = 1 if obj['metadata']['type']['id'] == 103 else 2
-                alle_rader.append([type_id, lat, lon, fart])
-            except:
-                continue
-
-        # Lagre til fil
-        with open('ATK.csv', 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerows(alle_rader)
-            
-        print(f"Ferdig! Lagret {len(alle_rader)} punkter.")
+    for o_type in objekttyper:
+        print(f"Henter objekttype {o_type}...")
+        # I V4 må URL-en være nøyaktig slik:
+        url = f"https://nvdbapiles.atlas.vegvesen.no/vegobjekter/{o_type}"
         
-        # Sjekk de første resultatene i loggen
-        test_fart = [r[3] for r in alle_rader[:10]]
-        print(f"Stikkprøve fartsgrenser: {test_fart}")
+        params = {
+            'inkluder': 'geometri,vegsegmenter',
+            'srid': '4326'
+        }
 
-    except Exception as e:
-        print(f"Krasj: {e}")
+        try:
+            response = requests.get(url, params=params, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                for obj in data.get('objekter', []):
+                    # 1. Koordinater
+                    wkt = obj['geometri']['wkt']
+                    coords = re.findall(r"[-+]?\d*\.\d+|\d+", wkt)
+                    if len(coords) < 2: continue
+                    lon, lat = coords[0], coords[1]
+
+                    # 2. HENT FARTSGRENSE FRA VEGSEGMENTET (Stedfestingen din)
+                    fart = "80" 
+                    if 'vegsegmenter' in obj and len(obj['vegsegmenter']) > 0:
+                        # Vi tar fartsgrensen fra det første segmentet objektet er stedfestet på
+                        seg_fart = obj['vegsegmenter'][0].get('fartsgrense')
+                        if seg_fart:
+                            fart = str(seg_fart)
+
+                    type_id = 1 if o_type == "103" else 2
+                    alle_data.append([type_id, lat, lon, fart])
+            else:
+                print(f"Kunne ikke hente {o_type}. Status: {response.status_code}")
+        except Exception as e:
+            print(f"Feil ved {o_type}: {e}")
+
+    # Skriv alt til fil
+    with open('ATK.csv', 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerows(alle_data)
+        
+    print(f"FERDIG! Lagret {len(alle_data)} rader i ATK.csv.")
+    if alle_data:
+        stikkprove = [r[3] for r in alle_data[:10]]
+        print(f"Stikkprøve fartsgrenser: {stikkprove}")
 
 if __name__ == "__main__":
     hent_norske_fotobokser()
