@@ -4,62 +4,59 @@ import re
 
 def hent_norske_fotobokser():
     print("Kobler til NVDB V4...")
-    # Vi henter fotobokser (103) og strekningsmåling (823)
-    url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/103,823"
-    
-    # Her ber vi om vegsegmenter - det er der vegsystemreferanse og fartsgrense ligger i V4
-    params = {
-        'inkluder': 'geometri,vegsegmenter,metadata',
-        'srid': '4326'
-    }
-    
+    # Vi henter 103 og 823 hver for seg for å minske belastningen på serveren
+    typer = ["103", "823"]
     headers = {
         'Accept': 'application/vnd.vegvesen.nvdb-v4+json',
         'X-Client': 'SV650-Project'
     }
+    
+    alle_rader = []
 
-    try:
-        response = requests.get(url, params=params, headers=headers)
-        if response.status_code != 200:
-            print(f"Feil fra server: {response.status_code}")
-            return
-
-        data = response.json()
+    for t in typer:
+        print(f"Henter type {t}...")
+        url = f"https://nvdbapiles.atlas.vegvesen.no/vegobjekter/{t}"
+        params = {
+            'inkluder': 'geometri,vegsegmenter',
+            'srid': '4326'
+        }
         
-        # Vi åpner fila med en gang for å sikre at den eksisterer for Git
-        with open('ATK.csv', 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            total = 0
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                for obj in data.get('objekter', []):
+                    try:
+                        # Posisjon
+                        wkt = obj['geometri']['wkt']
+                        coords = re.findall(r"[-+]?\d*\.\d+|\d+", wkt)
+                        if len(coords) < 2: continue
+                        lon, lat = coords[0], coords[1]
 
-            for obj in data.get('objekter', []):
-                try:
-                    # 1. Koordinater
-                    wkt = obj['geometri']['wkt']
-                    coords = re.findall(r"[-+]?\d*\.\d+|\d+", wkt)
-                    if len(coords) < 2: continue
-                    lon, lat = coords[0], coords[1]
+                        # Fartsgrense fra vegsegment
+                        fart = "80"
+                        if 'vegsegmenter' in obj and len(obj['vegsegmenter']) > 0:
+                            # Hent fartsgrense direkte fra segment-data
+                            fart = str(obj['vegsegmenter'][0].get('fartsgrense', '80'))
+                        
+                        fart = "".join(filter(str.isdigit, fart))
+                        if not fart: fart = "80"
 
-                    # 2. Fartsgrense fra vegsystemreferanse i vegsegmentet
-                    fart = "80" 
-                    if 'vegsegmenter' in obj and len(obj['vegsegmenter']) > 0:
-                        # V4 lagrer fartsgrensen direkte på vegsegmentet
-                        segment = obj['vegsegmenter'][0]
-                        fart = str(segment.get('fartsgrense', '80'))
-                    
-                    # Rens farten (kun tall)
-                    fart = "".join(filter(str.isdigit, fart))
-                    if not fart or fart == "0": fart = "80"
+                        type_id = 1 if t == "103" else 2
+                        alle_rader.append([type_id, lat, lon, fart])
+                    except:
+                        continue
+            else:
+                print(f"Server svarte med {response.status_code} for type {t}")
+        except Exception as e:
+            print(f"Feil ved henting av type {t}: {e}")
 
-                    type_id = 1 if obj['metadata']['type']['id'] == 103 else 2
-                    writer.writerow([type_id, lat, lon, fart])
-                    total += 1
-                except:
-                    continue
-                    
-        print(f"Suksess! Lagret {total} punkter i ATK.csv.")
-
-    except Exception as e:
-        print(f"Krasj: {e}")
+    # VIKTIG: Skriv fila til slutt, uansett om vi fant data eller ikke
+    with open('ATK.csv', 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerows(alle_rader)
+        
+    print(f"Ferdig! Lagret {len(alle_rader)} rader i ATK.csv.")
 
 if __name__ == "__main__":
     hent_norske_fotobokser()
