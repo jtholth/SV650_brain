@@ -34,29 +34,29 @@ def hent_norske_fotobokser():
                         final_type = 1 if o_type == "103" else 2
                         
                         try:
+                            # Koordinat-vask
                             wkt = obj['geometri']['wkt']
-                            # Vi bruker "Regex" for å trekke ut kun tallene fra POINT eller LINESTRING
                             coords = re.findall(r"[-+]?\d*\.\d+|\d+", wkt)
                             
                             if len(coords) >= 2:
                                 lon = coords[0]
                                 lat = coords[1]
                                 
-                                # Finn fartsgrense
-                                fart = 80
+                                # HENT FAKTISK FARTSGRENSE
+                                fart = "Ukjent" 
                                 for egenskap in obj.get('egenskaper', []):
-                                    if "fartsgrense" in egenskap.get('navn', '').lower():
-                                        fart = egenskap.get('verdi', 80)
+                                    # Vi leter etter egenskapen med ID 2021 (Fartsgrense)
+                                    if egenskap.get('id') == 2021 or "fartsgrense" in egenskap.get('navn', '').lower():
+                                        fart = egenskap.get('verdi', "80")
                                 
-                                # Lagrer rent: Type, Lat, Lon, Fart
                                 writer.writerow([final_type, lat, lon, fart])
                                 total_antall += 1
-                        except Exception as e:
+                        except:
                             continue
                 else:
-                    print(f"Kunne ikke hente {o_type}: {response.status_code}")
+                    print(f"Feil ved henting: {response.status_code}")
 
-        print(f"FERDIG! Lagret {total_antall} rene punkter i 'ATK.csv'.")
+        print(f"FERDIG! Lagret {total_antall} punkter med korrekte fartsgrenser.")
         
     except Exception as e:
         print(f"En feil oppstod: {e}")
