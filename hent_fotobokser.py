@@ -34,7 +34,6 @@ def hent_norske_fotobokser():
                         final_type = 1 if o_type == "103" else 2
                         
                         try:
-                            # Koordinat-vask
                             wkt = obj['geometri']['wkt']
                             coords = re.findall(r"[-+]?\d*\.\d+|\d+", wkt)
                             
@@ -42,12 +41,18 @@ def hent_norske_fotobokser():
                                 lon = coords[0]
                                 lat = coords[1]
                                 
-                                # HENT FAKTISK FARTSGRENSE
-                                fart = "Ukjent" 
+                                # BEDRE FARTS-SJEKK
+                                fart = "80" # Default hvis alt feiler
                                 for egenskap in obj.get('egenskaper', []):
-                                    # Vi leter etter egenskapen med ID 2021 (Fartsgrense)
-                                    if egenskap.get('id') == 2021 or "fartsgrense" in egenskap.get('navn', '').lower():
-                                        fart = egenskap.get('verdi', "80")
+                                    navn = egenskap.get('navn', '').lower()
+                                    # Sjekker etter "fartsgrense" eller ID 2021
+                                    if "fartsgrense" in navn or egenskap.get('id') == 2021:
+                                        verdi = egenskap.get('verdi')
+                                        if verdi:
+                                            # Trekker ut kun tallene (f.eks "80 (km/t)" blir "80")
+                                            fart_match = re.search(r'\d+', str(verdi))
+                                            if fart_match:
+                                                fart = fart_match.group()
                                 
                                 writer.writerow([final_type, lat, lon, fart])
                                 total_antall += 1
@@ -56,7 +61,7 @@ def hent_norske_fotobokser():
                 else:
                     print(f"Feil ved henting: {response.status_code}")
 
-        print(f"FERDIG! Lagret {total_antall} punkter med korrekte fartsgrenser.")
+        print(f"FERDIG! Lagret {total_antall} punkter i 'ATK.csv'.")
         
     except Exception as e:
         print(f"En feil oppstod: {e}")
