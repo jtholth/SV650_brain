@@ -41,25 +41,26 @@ def hent_norske_fotobokser():
                                 lon = coords[0]
                                 lat = coords[1]
                                 
-                                # BEDRE FARTS-SJEKK
-                                fart = "80" # Default hvis alt feiler
+                                # --- SMART FARTS-SJEKK START ---
+                                fart = "80" # Default hvis vi ikke finner noe
                                 for egenskap in obj.get('egenskaper', []):
                                     navn = egenskap.get('navn', '').lower()
-                                    # Sjekker etter "fartsgrense" eller ID 2021
-                                    if "fartsgrense" in navn or egenskap.get('id') == 2021:
-                                        verdi = egenskap.get('verdi')
-                                        if verdi:
-                                            # Trekker ut kun tallene (f.eks "80 (km/t)" blir "80")
-                                            fart_match = re.search(r'\d+', str(verdi))
-                                            if fart_match:
-                                                fart = fart_match.group()
+                                    # Vi ser etter "fartsgrense" eller ID 2021
+                                    if "fart" in navn or egenskap.get('id') == 2021:
+                                        verdi_tekst = str(egenskap.get('verdi', ''))
+                                        # Bruker regex for å finne KUN siffer i teksten (f.eks "60 km/t" -> "60")
+                                        tall_match = re.search(r'\d+', verdi_tekst)
+                                        if tall_match:
+                                            fart = tall_match.group()
+                                            break # Vi fant det, gå videre til neste boks
+                                # --- SMART FARTS-SJEKK SLUTT ---
                                 
                                 writer.writerow([final_type, lat, lon, fart])
                                 total_antall += 1
                         except:
                             continue
                 else:
-                    print(f"Feil ved henting: {response.status_code}")
+                    print(f"Feil ved henting av {o_type}: {response.status_code}")
 
         print(f"FERDIG! Lagret {total_antall} punkter i 'ATK.csv'.")
         
