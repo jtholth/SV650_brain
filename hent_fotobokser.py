@@ -13,7 +13,7 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
 def hent_fotobokser():
-    print("Henter data og bygger ATK.csv...")
+    print("Henter data fra Vegvesenet og bygger ATK.csv...")
     headers = {'Accept': 'application/vnd.vegvesen.nvdb-v4+json', 'X-Client': 'ESP32-Project'}
     alle_rader = []
     strekninger = {}
@@ -40,14 +40,22 @@ def hent_fotobokser():
                     vls_id = seg.get('veglenkesekvensid')
                     
                     if vls_id:
-                        # 1. Startkoordinater for veien (Nødvendig for MED/MOT vinkel på ESP32)
-                        v_url = f"https://nvdbapiles.atlas.vegvesen.no/veglenkesekvenser/segmenter/{vls_id}"
+                        # 1. Hent geometri for hele veistrekket (Riktig API URL)
+                        v_url = f"https://nvdbapiles.atlas.vegvesen.no/vegnett/veglenkesekvenser/{vls_id}"
                         v_res = requests.get(v_url, headers=headers)
-                        if v_res.status_code == 200 and v_res.json():
-                            ref_wkt = v_res.json()[0].get('geometri', {}).get('wkt', '')
+                        if v_res.status_code == 200:
+                            data = v_res.json()
+                            ref_wkt = data.get('geometri', {}).get('wkt', '')
                             r_coords = re.findall(r"[-+]?\d*\.?\d+", ref_wkt)
-                            if r_coords:
-                                ref_lon, ref_lat = float(r_coords[0]), float(r_coords[1])
+                            
+                            if len(r_coords) >= 2:
+                                test_lon, test_lat = float(r_coords[0]), float(r_coords[1])
+                                
+                                # SMART-SJEKK: Hvis startpunktet er under 10 meter fra boksen, bruk sluttpunktet i stedet!
+                                if len(r_coords) >= 4 and haversine(lat, lon, test_lat, test_lon) < 10:
+                                    test_lon, test_lat = float(r_coords[-2]), float(r_coords[-1])
+                                    
+                                ref_lon, ref_lat = test_lon, test_lat
 
                         # 2. Hent nøyaktig fart (Tabell 105)
                         f_url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/105"
@@ -59,25 +67,25 @@ def hent_fotobokser():
                                     break
                 
                 if obj_type == "103":
-                    # Punkt-ATK: Variabel avstand basert på farten (aldri 0)
-                    variabel_avstand = int((fart / 3.6) * 30) # ca 30 sekunder ved gitt fart
+                    # Punkt-ATK: Variabel avstand basert på farten (ca 30 sekunder)
+                    variabel_avstand = int((fart / 3.6) * 30) 
                     alle_rader.append([1, lat, lon, ref_lat, ref_lon, fart, retning, variabel_avstand])
                 else:
-                    # Streknings-ATK: Lagrer for å beregne ekte meter mellom de to kameraene
+                    # Streknings-ATK
                     if vls_id not in strekninger: strekninger[vls_id] = []
                     strekninger[vls_id].append({
                         'lat': lat, 'lon': lon, 'ref_lat': ref_lat, 'ref_lon': ref_lon, 
                         'fart': fart, 'retning': retning
                     })
 
-    # Regner ut avstand mellom kameraene for alle strekninger (Type 2)
+    # Regner ut avstand mellom kameraene for streknings-ATK (Type 2)
     for vls_id, punkter in strekninger.items():
         if len(punkter) >= 2:
             dist = int(haversine(punkter[0]['lat'], punkter[0]['lon'], punkter[1]['lat'], punkter[1]['lon']))
             for p in punkter[:2]:
                 alle_rader.append([2, p['lat'], p['lon'], p['ref_lat'], p['ref_lon'], p['fart'], p['retning'], dist])
 
-    # Lagrer alt med rett format i ATK.csv
+    # Lagrer til ATK.csv
     with open('ATK.csv', 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerows(alle_rader)
