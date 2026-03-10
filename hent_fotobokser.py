@@ -1,6 +1,5 @@
 import requests
 import csv
-import re
 import math
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -11,6 +10,18 @@ def haversine(lat1, lon1, lat2, lon2):
     dlambda = math.radians(lon2 - lon1)
     a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+def parse_wkt_point(wkt_str, index=0):
+    # Henter ut koordinater uansett om det er 2D eller 3D (Z-akse)
+    # index 0 for startpunkt, -1 for sluttpunkt
+    try:
+        content = wkt_str[wkt_str.find('(')+1 : wkt_str.find(')')]
+        points = content.split(',')
+        target_point = points[index].strip().split()
+        # Sender alltid tilbake [Lengdegrad (Lon), Breddegrad (Lat)]
+        return float(target_point[0]), float(target_point[1])
+    except:
+        return None, None
 
 def hent_fotobokser():
     print("Henter Punkt-ATK fra tabell 162...")
@@ -28,16 +39,15 @@ def hent_fotobokser():
         
         for obj in objekter:
             atk_id = obj.get('id', 'Ukjent')
-            coords = re.findall(r"[-+]?\d*\.?\d+", obj.get('geometri', {}).get('wkt', ''))
+            wkt_boks = obj.get('geometri', {}).get('wkt', '')
             
-            if not coords or len(coords) < 2: 
+            lon, lat = parse_wkt_point(wkt_boks, 0)
+            if lon is None or lat is None: 
                 continue
                 
-            lon, lat = float(coords[0]), float(coords[1])
             fart = 80
             retning = "MED"
-            ref_lat, ref_lon = lat, lon  # Nødløsning hvis startpunkt feiler
-            vls_id = None
+            ref_lat, ref_lon = lat, lon  # Nødløsning
             
             if 'vegsegmenter' in obj and len(obj['vegsegmenter']) > 0:
                 seg = obj['vegsegmenter'][0]
@@ -45,22 +55,26 @@ def hent_fotobokser():
                 vls_id = seg.get('veglenkesekvensid')
                 
                 if vls_id:
-                    # Hent veiens startkoordinater (VIKTIG: srid=4326)
-                    v_url = f"https://nvdbapiles.atlas.vegvesen.no/vegnett/veglenkesekvenser/{vls_id}?srid=4326"
+                    # FIKS 1: Tvunget inkludering av geometri (&inkluder=geometri)
+                    v_url = f"https://nvdbapiles.atlas.vegvesen.no/vegnett/veglenkesekvenser/{vls_id}?srid=4326&inkluder=geometri"
                     v_res = requests.get(v_url, headers=headers)
                     
                     if v_res.status_code == 200:
                         ref_wkt = v_res.json().get('geometri', {}).get('wkt', '')
-                        r_coords = re.findall(r"[-+]?\d*\.?\d+", ref_wkt)
                         
-                        if len(r_coords) >= 2:
-                            test_lon, test_lat = float(r_coords[0]), float(r_coords[1])
-                            
+                        # FIKS 2: Robust uthenting av startpunkt som ignorerer Z-koordinater
+                        test_lon, test_lat = parse_wkt_point(ref_wkt, 0)
+                        
+                        if test_lon is not None and test_lat is not None:
                             # SMART-SJEKK: Hvis startpunktet er under 10m fra boksen, bruk sluttpunktet
-                            if len(r_coords) >= 4 and haversine(lat, lon, test_lat, test_lon) < 10:
-                                test_lon, test_lat = float(r_coords[-2]), float(r_coords[-1])
-                                
+                            if haversine(lat, lon, test_lat, test_lon) < 10:
+                                last_lon, last_lat = parse_wkt_point(ref_wkt, -1)
+                                if last_lon is not None:
+                                    test_lon, test_lat = last_lon, last_lat
+                                    
                             ref_lon, ref_lat = test_lon, test_lat
+                    else:
+                        print(f"Advarsel: Feil {v_res.status_code} ved henting av veglenke {vls_id}")
                     
                     # Hent riktig fartsgrense (Tabell 105)
                     f_url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/105"
