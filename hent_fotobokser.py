@@ -91,7 +91,7 @@ def hent_fotobokser():
                                 fart = int(e.get('verdi', 80))
                                 break
             
-            variabel_avstand = int((fart / 3.6) * 30) 
+            variabel_avstand = int((fart / 3.6) * 10) 
             alle_rader.append([atk_id, lon, lat, ref_lon, ref_lat, fart, retning, variabel_avstand])
 
         with open('ATK.csv', 'w', newline='', encoding='utf-8') as f:
