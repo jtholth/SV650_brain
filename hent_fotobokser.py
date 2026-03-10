@@ -55,14 +55,14 @@ def hent_fotobokser():
                 vls_id = seg.get('veglenkesekvensid')
                 
                 if vls_id:
-                    # FIKS 1: Tvunget inkludering av geometri (&inkluder=geometri)
-                    v_url = f"https://nvdbapiles.atlas.vegvesen.no/vegnett/veglenkesekvenser/{vls_id}?srid=4326&inkluder=geometri"
+                    # FIKSET HER: Fjernet &inkluder=geometri som skapte 400 Bad Request
+                    v_url = f"https://nvdbapiles.atlas.vegvesen.no/vegnett/veglenkesekvenser/{vls_id}?srid=4326"
                     v_res = requests.get(v_url, headers=headers)
                     
                     if v_res.status_code == 200:
                         ref_wkt = v_res.json().get('geometri', {}).get('wkt', '')
                         
-                        # FIKS 2: Robust uthenting av startpunkt som ignorerer Z-koordinater
+                        # Robust uthenting av startpunkt som ignorerer Z-koordinater
                         test_lon, test_lat = parse_wkt_point(ref_wkt, 0)
                         
                         if test_lon is not None and test_lat is not None:
