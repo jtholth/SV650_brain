@@ -12,13 +12,12 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
 def parse_wkt_point(wkt_str, index=0):
-    # Henter ut koordinater uansett om det er 2D eller 3D (Z-akse)
-    # index 0 for startpunkt, -1 for sluttpunkt
     try:
-        content = wkt_str[wkt_str.find('(')+1 : wkt_str.find(')')]
+        if not wkt_str or '(' not in wkt_str:
+            return None, None
+        content = wkt_str[wkt_str.find('(')+1 : wkt_str.rfind(')')]
         points = content.split(',')
         target_point = points[index].strip().split()
-        # Sender alltid tilbake [Lengdegrad (Lon), Breddegrad (Lat)]
         return float(target_point[0]), float(target_point[1])
     except:
         return None, None
@@ -55,26 +54,33 @@ def hent_fotobokser():
                 vls_id = seg.get('veglenkesekvensid')
                 
                 if vls_id:
-                    # FIKSET HER: Fjernet &inkluder=geometri som skapte 400 Bad Request
                     v_url = f"https://nvdbapiles.atlas.vegvesen.no/vegnett/veglenkesekvenser/{vls_id}?srid=4326"
                     v_res = requests.get(v_url, headers=headers)
                     
                     if v_res.status_code == 200:
-                        ref_wkt = v_res.json().get('geometri', {}).get('wkt', '')
+                        v_data = v_res.json()
+                        ref_wkt = ""
+                        last_wkt = ""
                         
-                        # Robust uthenting av startpunkt som ignorerer Z-koordinater
+                        # NYTT HER: Vegvesenet har gjemt koordinatene inni listen "veglenker"
+                        if 'veglenker' in v_data and len(v_data['veglenker']) > 0:
+                            veglenker = sorted(v_data['veglenker'], key=lambda x: x.get('startposisjon', 0))
+                            ref_wkt = veglenker[0].get('geometri', {}).get('wkt', '')
+                            last_wkt = veglenker[-1].get('geometri', {}).get('wkt', '')
+                        elif 'geometri' in v_data:
+                            ref_wkt = v_data.get('geometri', {}).get('wkt', '')
+                            last_wkt = ref_wkt
+                        
                         test_lon, test_lat = parse_wkt_point(ref_wkt, 0)
                         
                         if test_lon is not None and test_lat is not None:
-                            # SMART-SJEKK: Hvis startpunktet er under 10m fra boksen, bruk sluttpunktet
+                            # Sjekk om startpunktet er for nærme (<10m). Isåfall, bruk sluttpunktet.
                             if haversine(lat, lon, test_lat, test_lon) < 10:
-                                last_lon, last_lat = parse_wkt_point(ref_wkt, -1)
-                                if last_lon is not None:
-                                    test_lon, test_lat = last_lon, last_lat
+                                t_lon, t_lat = parse_wkt_point(last_wkt, -1)
+                                if t_lon is not None:
+                                    test_lon, test_lat = t_lon, t_lat
                                     
                             ref_lon, ref_lat = test_lon, test_lat
-                    else:
-                        print(f"Advarsel: Feil {v_res.status_code} ved henting av veglenke {vls_id}")
                     
                     # Hent riktig fartsgrense (Tabell 105)
                     f_url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/105"
@@ -85,7 +91,6 @@ def hent_fotobokser():
                                 fart = int(e.get('verdi', 80))
                                 break
             
-            # ESP32 Forventer format: [ID, Lon, Lat, refLon, refLat, fart, retning, avstand]
             variabel_avstand = int((fart / 3.6) * 30) 
             alle_rader.append([atk_id, lon, lat, ref_lon, ref_lat, fart, retning, variabel_avstand])
 
@@ -93,9 +98,9 @@ def hent_fotobokser():
             writer = csv.writer(f)
             writer.writerows(alle_rader)
             
-        print(f"\nSuksess! Lagret {len(alle_rader)} ekte fotobokser fra tabell 162 i 'ATK.csv'.")
+        print(f"\nSuksess! Lagret {len(alle_rader)} ekte fotobokser i 'ATK.csv'.")
     else:
-        print(f"Kunne ikke koble til NVDB. HTTP Status: {res.status_code}")
+        print(f"Feil mot NVDB. Status: {res.status_code}")
 
 if __name__ == "__main__":
     hent_fotobokser()
