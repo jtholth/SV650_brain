@@ -52,6 +52,8 @@ def hent_fotobokser():
                 seg = obj['vegsegmenter'][0]
                 retning = seg.get('retning', 'MED').upper()
                 vls_id = seg.get('veglenkesekvensid')
+                # NYTT: Vi henter ut nøyaktig posisjon på veien for å finne riktig fart!
+                rel_pos = seg.get('relativPosisjon') 
                 
                 if vls_id:
                     v_url = f"https://nvdbapiles.atlas.vegvesen.no/vegnett/veglenkesekvenser/{vls_id}?srid=4326"
@@ -62,7 +64,6 @@ def hent_fotobokser():
                         ref_wkt = ""
                         last_wkt = ""
                         
-                        # NYTT HER: Vegvesenet har gjemt koordinatene inni listen "veglenker"
                         if 'veglenker' in v_data and len(v_data['veglenker']) > 0:
                             veglenker = sorted(v_data['veglenker'], key=lambda x: x.get('startposisjon', 0))
                             ref_wkt = veglenker[0].get('geometri', {}).get('wkt', '')
@@ -74,7 +75,6 @@ def hent_fotobokser():
                         test_lon, test_lat = parse_wkt_point(ref_wkt, 0)
                         
                         if test_lon is not None and test_lat is not None:
-                            # Sjekk om startpunktet er for nærme (<10m). Isåfall, bruk sluttpunktet.
                             if haversine(lat, lon, test_lat, test_lon) < 10:
                                 t_lon, t_lat = parse_wkt_point(last_wkt, -1)
                                 if t_lon is not None:
@@ -82,17 +82,24 @@ def hent_fotobokser():
                                     
                             ref_lon, ref_lat = test_lon, test_lat
                     
-                    # Hent riktig fartsgrense (Tabell 105)
-                    f_url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/105"
-                    f_res = requests.get(f_url, params={'veglenkesekvens': vls_id, 'inkluder': 'egenskaper'}, headers=headers)
-                    if f_res.status_code == 200 and f_res.json().get('objekter'):
-                        for e in f_res.json()['objekter'][0].get('egenskaper', []):
-                            if e.get('id') == 2021:
-                                fart = int(e.get('verdi', 80))
-                                break
+                    # --- OPPDATERT: Hent riktig fartsgrense (Tabell 105) ---
+                    if rel_pos is not None:
+                        f_url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/105"
+                        # Vi bruker ID@POSISJON for å slå opp akkurat der boksen står
+                        f_params = {'veglenkesekvens': f"{vls_id}@{rel_pos}", 'inkluder': 'egenskaper'}
+                        f_res = requests.get(f_url, params=f_params, headers=headers)
+                        
+                        if f_res.status_code == 200 and f_res.json().get('objekter'):
+                            for e in f_res.json()['objekter'][0].get('egenskaper', []):
+                                if e.get('id') == 2021: # 2021 er egenskapen for selve fartsgrensen
+                                    fart = int(e.get('verdi', 80))
+                                    break
             
             variabel_avstand = int((fart / 3.6) * 10) 
-            alle_rader.append([atk_id, lon, lat, ref_lon, ref_lat, fart, retning, variabel_avstand])
+            
+            # OPPDATERT: Byttet om lat og lon her, slik at filen formateres riktig for ESP-en: 
+            # [ID, Latitude, Longitude, StartLat, StartLon, Fart, Retning, Radius]
+            alle_rader.append([atk_id, lat, lon, ref_lat, ref_lon, fart, retning, variabel_avstand])
 
         with open('ATK.csv', 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
