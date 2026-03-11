@@ -34,7 +34,7 @@ def hent_fotobokser():
     
     if res.status_code == 200:
         objekter = res.json().get('objekter', [])
-        print(f"Laster ned {len(objekter)} fotobokser...")
+        print(f"Laster ned {len(objekter)} fotobokser. Dette kan ta noen sekunder...\n")
         
         for obj in objekter:
             atk_id = obj.get('id', 'Ukjent')
@@ -44,7 +44,7 @@ def hent_fotobokser():
             if lon is None or lat is None: 
                 continue
                 
-            fart = 80
+            fart = 80 # Standardverdi hvis API-et feiler
             retning = "MED"
             ref_lat, ref_lon = lat, lon  # Nødløsning
             
@@ -52,7 +52,6 @@ def hent_fotobokser():
                 seg = obj['vegsegmenter'][0]
                 retning = seg.get('retning', 'MED').upper()
                 vls_id = seg.get('veglenkesekvensid')
-                # NYTT: Vi henter ut nøyaktig posisjon på veien for å finne riktig fart!
                 rel_pos = seg.get('relativPosisjon') 
                 
                 if vls_id:
@@ -82,23 +81,22 @@ def hent_fotobokser():
                                     
                             ref_lon, ref_lat = test_lon, test_lat
                     
-                    # --- OPPDATERT: Hent riktig fartsgrense (Tabell 105) ---
+                    # --- RETTET OPP I API-SPØRRINGEN HER ---
                     if rel_pos is not None:
                         f_url = "https://nvdbapiles.atlas.vegvesen.no/vegobjekter/105"
-                        # Vi bruker ID@POSISJON for å slå opp akkurat der boksen står
-                        f_params = {'veglenkesekvens': f"{vls_id}@{rel_pos}", 'inkluder': 'egenskaper'}
+                        # NVDB krever formatet: relativPosisjon@veglenkesekvensid (f.eks 0.45@123456)
+                        f_params = {'veglenkesekvens': f"{rel_pos}@{vls_id}", 'inkluder': 'egenskaper'}
                         f_res = requests.get(f_url, params=f_params, headers=headers)
                         
                         if f_res.status_code == 200 and f_res.json().get('objekter'):
                             for e in f_res.json()['objekter'][0].get('egenskaper', []):
-                                if e.get('id') == 2021: # 2021 er egenskapen for selve fartsgrensen
+                                if e.get('id') == 2021: # 2021 er egenskapen "Fartsgrense"
                                     fart = int(e.get('verdi', 80))
                                     break
             
             variabel_avstand = int((fart / 3.6) * 10) 
+            print(f"Boks {atk_id}: Fartsgrense funnet = {fart} km/t")
             
-            # OPPDATERT: Byttet om lat og lon her, slik at filen formateres riktig for ESP-en: 
-            # [ID, Latitude, Longitude, StartLat, StartLon, Fart, Retning, Radius]
             alle_rader.append([atk_id, lat, lon, ref_lat, ref_lon, fart, retning, variabel_avstand])
 
         with open('ATK.csv', 'w', newline='', encoding='utf-8') as f:
